@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+
+import threading
+from typing import Optional, Tuple
+
+import cv2
+import numpy as np
+import rclpy
+from cv_bridge import CvBridge
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+
+
+def get_screen_size() -> Tuple[int, int]:
+    try:
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        width = root.winfo_screenwidth()
+        height = root.winfo_screenheight()
+        root.destroy()
+        return width, height
+    except Exception:
+        return 1920, 1080
+
+
+def get_windowed_target_size(screen_width: int, screen_height: int) -> Tuple[int, int]:
+    return max(screen_width - 16, 640), max(screen_height - 96, 480)
+
+
+def resize_to_fill(image: np.ndarray, target_width: int, target_height: int) -> np.ndarray:
+    src_height, src_width = image.shape[:2]
+    if src_width == 0 or src_height == 0:
+        return image
+
+    scale = max(target_width / src_width, target_height / src_height)
+    resized_width = max(int(src_width * scale), 1)
+    resized_height = max(int(src_height * scale), 1)
+    resized = cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR)
+    start_x = max((resized_width - target_width) // 2, 0)
+    start_y = max((resized_height - target_height) // 2, 0)
+    end_x = start_x + target_width
+    end_y = start_y + target_height
+    return resized[start_y:end_y, start_x:end_x]
+
+
+class CameraFullscreenViewer(Node):
+    def __init__(self) -> None:
+        super().__init__("camera_fullscreen_viewer")
+
+        self.declare_parameter("image_topic", "/camera/color/image_raw")
+        self.declare_parameter("window_name", "LIMO Ultra Camera")
+        self.declare_parameter("fullscreen", True)
+        self.declare_parameter("maximize_window", False)
+        self.declare_parameter("close_on_click", True)
+        self.declare_parameter("fill_mode", "crop")
+        self.declare_parameter("window_width", 1280)
+        self.declare_parameter("window_height", 720)
+
+        image_topic = str(self.get_parameter("image_topic").value)
+        self.window_name = str(self.get_parameter("window_name").value)
+        self.fullscreen = bool(self.get_parameter("fullscreen").value)
+        self.maximize_window = bool(self.get_parameter("maximize_window").value)
+        self.close_on_click = bool(self.get_parameter("close_on_click").value)
+        self.fill_mode = str(self.get_parameter("fill_mode").value).lower()
+        self.window_width = int(self.get_parameter("window_width").value)
+        self.window_height = int(self.get_parameter("window_height").value)
+
+        self.bridge = CvBridge()
+        self.lock = threading.Lock()
+        self.latest_frame: Optional[np.ndarray] = None
+        self.close_requested = False
+        self.screen_width, self.screen_height = get_screen_size()
+        self.max_window_width, self.max_window_height = get_windowed_target_size(
+            self.screen_width, self.screen_height
+        )
+
+        self.create_subscription(Image, image_topic, self.image_callback, 10)
+        self.get_logger().info(
+            f"Camera viewer started. topic={image_topic}, "
+            f"fullscreen={self.fullscreen}, maximize={self.maximize_window}, "
+            f"close_on_click={self.close_on_click}, "
+            f"window={self.window_width}x{self.window_height}, "
+            f"screen={self.screen_width}x{self.screen_height}, "
+            f"max_window={self.max_window_width}x{self.max_window_height}, mode={self.fill_mode}"
+        )
+
+    def image_callback(self, msg: Image) -> None:
+        frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        with self.lock:
+            self.latest_frame = frame
+
+    def get_latest_frame(self) -> Optional[np.ndarray]:
+        with self.lock:
+            if self.latest_frame is None:
+                return None
+            return self.latest_frame.copy()
+
+    def prepare_frame(self, frame: np.ndarray) -> np.ndarray:
+        target_width = self.window_width
+        target_height = self.window_height
+
+        if self.fullscreen:
+            target_width = self.screen_width
+            target_height = self.screen_height
+        elif self.maximize_window:
+            target_width = self.max_window_width
+            target_height = self.max_window_height
+
+        if self.fill_mode == "crop":
+            return resize_to_fill(frame, target_width, target_height)
+
+        return cv2.resize(frame, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
+
+    def on_mouse(self, event, _x, _y, _flags, _param) -> None:
+        if self.close_on_click and event == cv2.EVENT_LBUTTONDOWN:
+            self.close_requested = True
+
+
+def main(args=None) -> None:
+    rclpy.init(args=args)
+    node = CameraFullscreenViewer()
+
+    spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
+    spin_thread.start()
+
+    cv2.namedWindow(node.window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_NORMAL)
+    cv2.setMouseCallback(node.window_name, node.on_mouse)
+    if node.fullscreen:
+        cv2.setWindowProperty(node.window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    elif node.maximize_window:
+        cv2.resizeWindow(node.window_name, node.max_window_width, node.max_window_height)
+        cv2.moveWindow(node.window_name, 0, 0)
+    else:
+        cv2.resizeWindow(node.window_name, node.window_width, node.window_height)
+
+    try:
+        while rclpy.ok():
+            frame = node.get_latest_frame()
+            if frame is not None:
+                display_frame = node.prepare_frame(frame)
+                cv2.imshow(node.window_name, display_frame)
+
+            key = cv2.waitKey(10) & 0xFF
+            if node.close_requested or key in (27, ord("q")):
+                break
+    finally:
+        cv2.destroyAllWindows()
+        node.destroy_node()
+        rclpy.shutdown()
+        spin_thread.join(timeout=2.0)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,18 +1,17 @@
 # Camera Autoview
 
-Login autostart install:
+Run with ROS 2:
 
 ```bash
-cd /home/agilex/herelink/camera_autoview
-./install_camera_autostart.sh
+source /home/agilex/agilex_ws/install/setup.bash
+ros2 launch camera_autoview camera_autoview.launch.py
 ```
 
-Run manually:
+Useful overrides:
 
 ```bash
-cd /home/agilex/herelink/camera_autoview
-./start_camera_autoview.sh
+ros2 launch camera_autoview camera_autoview.launch.py fullscreen:=false maximize_window:=true
 ```
 
-This launcher starts in a maximized window with the title bar visible and `fill_mode:=crop`
-so the camera view fills the available client area.
+This launcher starts in fullscreen with `fill_mode:=crop`.
+Click anywhere on the camera image to close it.
