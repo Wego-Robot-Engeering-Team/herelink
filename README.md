@@ -2,6 +2,8 @@
 
 HereLink 조종기 입력을 `HereLink Air Unit -> S.Bus -> Cube/Mini Carrier Board -> USB -> Python/ROS2` 경로로 읽고, ROS2 `/cmd_vel`로 변환하는 도구입니다.
 
+이 저장소의 핵심 스크립트는 `utils/read_rc_from_cube.py`입니다. Cube가 USB로 내보내는 MAVLink `RC_CHANNELS` 메시지를 읽어서 RC 채널 값을 출력합니다.
+
 Camera autoview 관련 파일은 `camera_autoview/` 아래에 있습니다.
 
 ## 연결 구조
@@ -33,8 +35,8 @@ GND / -           -------->  GND / -
 5V / +            -------->  연결하지 않아도 됨
 ```
 
-- Air Unit은 별도 전원이 필요합니다.
-- `RC IN`에는 보통 `Signal + GND`만 연결합니다.
+- Air Unit은 별도 전원이 필요합니다. S.Bus 선만 꽂으면 Air Unit이 동작하지 않습니다.
+- Air Unit 전원은 Air Unit 전원 포트에 넣고, `RC IN`에는 보통 `Signal + GND`만 연결합니다.
 - Mini Carrier Board 기본 `RC IN`은 `PPM/S.BUS`입니다.
 - Mini Carrier Board가 `SPKT` 모드로 개조되어 있으면 HereLink S.Bus 입력이 안 들어올 수 있습니다.
 
