@@ -45,6 +45,21 @@ def resize_to_fill(image: np.ndarray, target_width: int, target_height: int) -> 
     return resized[start_y:end_y, start_x:end_x]
 
 
+def make_placeholder(width: int, height: int) -> np.ndarray:
+    canvas = np.zeros((height, width, 3), dtype=np.uint8)
+    cv2.putText(
+        canvas,
+        "Waiting for camera...",
+        (40, max(height // 2, 80)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.2,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    return canvas
+
+
 class CameraFullscreenViewer(Node):
     def __init__(self) -> None:
         super().__init__("camera_fullscreen_viewer")
@@ -127,6 +142,7 @@ def main(args=None) -> None:
 
     cv2.namedWindow(node.window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_NORMAL)
     cv2.setMouseCallback(node.window_name, node.on_mouse)
+    cv2.moveWindow(node.window_name, 0, 0)
     if node.fullscreen:
         cv2.setWindowProperty(node.window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     elif node.maximize_window:
@@ -135,12 +151,25 @@ def main(args=None) -> None:
     else:
         cv2.resizeWindow(node.window_name, node.window_width, node.window_height)
 
+    if hasattr(cv2, "WND_PROP_TOPMOST"):
+        try:
+            cv2.setWindowProperty(node.window_name, cv2.WND_PROP_TOPMOST, 1)
+        except cv2.error:
+            pass
+
+    placeholder_width = node.screen_width if node.fullscreen else node.window_width
+    placeholder_height = node.screen_height if node.fullscreen else node.window_height
+    placeholder = make_placeholder(placeholder_width, placeholder_height)
+
     try:
         while rclpy.ok():
             frame = node.get_latest_frame()
             if frame is not None:
                 display_frame = node.prepare_frame(frame)
-                cv2.imshow(node.window_name, display_frame)
+            else:
+                display_frame = placeholder
+
+            cv2.imshow(node.window_name, display_frame)
 
             key = cv2.waitKey(10) & 0xFF
             if node.close_requested or key in (27, ord("q")):

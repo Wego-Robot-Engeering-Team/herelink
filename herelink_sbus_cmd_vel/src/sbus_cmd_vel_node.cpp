@@ -99,6 +99,9 @@ public:
     publish_zero_on_timeout_ = declare_parameter<bool>("publish_zero_on_timeout", true);
     request_rate_hz_ = declare_parameter<int>("request_rate_hz", 20);
     debug_output_ = declare_parameter<bool>("debug_output", false);
+    debug_log_interval_sec_ = declare_parameter<double>("debug_log_interval_sec", 1.0);
+    debug_cmd_change_threshold_ = declare_parameter<double>("debug_cmd_change_threshold", 0.02);
+    debug_pwm_change_threshold_ = declare_parameter<int>("debug_pwm_change_threshold", 5);
 
     cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>(cmd_vel_topic_, 10);
     timer_ = create_wall_timer(
@@ -358,13 +361,18 @@ private:
     geometry_msgs::msg::Twist cmd;
     cmd.linear.x = axis_from_pwm(linear_pwm) * max_linear_ * linear_direction_;
     cmd.linear.y = axis_from_pwm(lateral_pwm) * max_lateral_ * lateral_direction_;
-    cmd.angular.z = axis_from_pwm(angular_pwm) * max_angular_ * angular_direction_;
+    cmd.angular.z = -1 * axis_from_pwm(angular_pwm) * max_angular_ * angular_direction_;
+
+    cmd.linear.x = (std::abs(cmd.linear.x) < 0.1) ? 0.0 : cmd.linear.x;
+    cmd.linear.y = (std::abs(cmd.linear.y) < 0.1) ? 0.0 : cmd.linear.y;
+    cmd.angular.z = (std::abs(cmd.angular.z) < 0.1) ? 0.0 : cmd.angular.z;
+
     cmd_vel_pub_->publish(cmd);
 
     last_rc_time_ = this->now();
     zero_published_after_timeout_ = false;
 
-    if (debug_output_ && should_print_debug()) {
+    if (debug_output_ && should_print_debug(linear_pwm, lateral_pwm, angular_pwm, cmd)) {
       RCLCPP_INFO(
         get_logger(),
         "RC ch%d=%u ch%d=%u ch%d=%u -> %s linear.x=%.3f linear.y=%.3f angular.z=%.3f",
@@ -378,15 +386,41 @@ private:
       cmd.linear.x, cmd.linear.y, cmd.angular.z);
   }
 
-  bool should_print_debug()
+  bool should_print_debug(
+    uint16_t linear_pwm,
+    uint16_t lateral_pwm,
+    uint16_t angular_pwm,
+    const geometry_msgs::msg::Twist & cmd)
   {
     const auto now = this->now();
-    if (last_debug_time_.nanoseconds() != 0 &&
-      (now - last_debug_time_).seconds() < 0.2)
-    {
+
+    const bool is_first_log = last_debug_time_.nanoseconds() == 0;
+    const bool pwm_changed =
+      std::abs(static_cast<int>(linear_pwm) - static_cast<int>(last_logged_linear_pwm_)) >=
+        debug_pwm_change_threshold_ ||
+      std::abs(static_cast<int>(lateral_pwm) - static_cast<int>(last_logged_lateral_pwm_)) >=
+        debug_pwm_change_threshold_ ||
+      std::abs(static_cast<int>(angular_pwm) - static_cast<int>(last_logged_angular_pwm_)) >=
+        debug_pwm_change_threshold_;
+    const bool cmd_changed =
+      std::abs(cmd.linear.x - last_logged_linear_x_) >= debug_cmd_change_threshold_ ||
+      std::abs(cmd.linear.y - last_logged_linear_y_) >= debug_cmd_change_threshold_ ||
+      std::abs(cmd.angular.z - last_logged_angular_z_) >= debug_cmd_change_threshold_;
+    const bool interval_elapsed =
+      last_debug_time_.nanoseconds() != 0 &&
+      (now - last_debug_time_).seconds() >= debug_log_interval_sec_;
+
+    if (!is_first_log && !pwm_changed && !cmd_changed && !interval_elapsed) {
       return false;
     }
+
     last_debug_time_ = now;
+    last_logged_linear_pwm_ = linear_pwm;
+    last_logged_lateral_pwm_ = lateral_pwm;
+    last_logged_angular_pwm_ = angular_pwm;
+    last_logged_linear_x_ = cmd.linear.x;
+    last_logged_linear_y_ = cmd.linear.y;
+    last_logged_angular_z_ = cmd.angular.z;
     return true;
   }
 
@@ -532,8 +566,11 @@ private:
   double lateral_direction_ = -1.0;
   double angular_direction_ = -1.0;
   double rc_timeout_sec_ = 0.5;
+  double debug_log_interval_sec_ = 1.0;
+  double debug_cmd_change_threshold_ = 0.02;
   bool publish_zero_on_timeout_ = true;
   bool debug_output_ = false;
+  int debug_pwm_change_threshold_ = 5;
   int request_rate_hz_ = 20;
 
   int fd_ = -1;
@@ -542,6 +579,12 @@ private:
   uint8_t target_component_ = 0;
   std::vector<uint8_t> buffer_;
   bool zero_published_after_timeout_ = false;
+  uint16_t last_logged_linear_pwm_ = 0;
+  uint16_t last_logged_lateral_pwm_ = 0;
+  uint16_t last_logged_angular_pwm_ = 0;
+  double last_logged_linear_x_ = 0.0;
+  double last_logged_linear_y_ = 0.0;
+  double last_logged_angular_z_ = 0.0;
   rclcpp::Time last_open_attempt_;
   rclcpp::Time last_request_time_;
   rclcpp::Time last_rc_time_;

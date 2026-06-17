@@ -24,7 +24,7 @@ def generate_launch_description():
                 "max_linear": 0.5,
                 "max_lateral": 0.5,
                 "max_angular": 1.0,
-                "debug_output": True,
+                "debug_output": False,
             }],
         )
     ])
