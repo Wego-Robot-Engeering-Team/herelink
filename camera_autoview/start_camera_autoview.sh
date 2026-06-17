@@ -10,4 +10,7 @@ set +u
 source "${WORKSPACE_DIR}/install/setup.bash"
 set -u
 
-exec ros2 launch limo_ultra_bringup camera_autoview.launch.py
+exec ros2 launch limo_ultra_bringup camera_autoview.launch.py \
+  fullscreen:=false \
+  maximize_window:=true \
+  fill_mode:=crop
