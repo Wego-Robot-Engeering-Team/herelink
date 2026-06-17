@@ -10,7 +10,10 @@ from typing import Dict, Iterator, Optional
 
 import serial
 
-from check_mavlink_uart import MavlinkFrame, extract_frames
+try:
+    from .check_mavlink_uart import MavlinkFrame, extract_frames
+except ImportError:
+    from check_mavlink_uart import MavlinkFrame, extract_frames
 
 
 DEFAULT_USB_PORT = "/dev/ttyACM0"
