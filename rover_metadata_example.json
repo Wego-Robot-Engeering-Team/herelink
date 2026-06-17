@@ -1,0 +1,92 @@
+{
+  "metaVersion": "1.0",
+  "appVersion": "rover-app-1.2.0",
+  "draftInspectionUnitId": 123,
+  "drone": "Rover - RVR-01",
+  "startTime": "2026-06-17T09:00:00+09:00",
+  "completeTime": "2026-06-17T09:12:30+09:00",
+  "missionUuid": "mission-001",
+  "bladePosMap": {
+    "0": "A",
+    "1": "B",
+    "2": "C"
+  },
+  "chamberPosMap": {
+    "0": "ACC",
+    "1": "LE",
+    "2": "CC",
+    "3": "TE",
+    "4": "TE2"
+  },
+  "remark": "",
+  "photos": [
+    {
+      "fileDir": "photos/seq000",
+      "filename": "IMG_0001.JPG",
+      "photoTakenAt": "2026-06-17T09:00:12+09:00",
+      "uniqueKey": "photo-001",
+      "chamberPosition": 1,
+      "bladePosition": 0,
+      "timeZone": "Asia/Seoul",
+      "sequenceId": 0,
+      "n": 0.0,
+      "e": 0.0,
+      "alt": 0.0,
+      "r": 3.25,
+      "bodyRoll": 0.0,
+      "bodyPitch": 0.0,
+      "bodyYaw": 0.0,
+      "gimbalRoll": 0.0,
+      "gimbalPitch": -90.0,
+      "gimbalYaw": 12.5,
+      "gpsAltitude": 0.0,
+      "gpsLatitude": 0.0,
+      "gpsLongitude": 0.0,
+      "focalLength": 40.0,
+      "fNumber": 2.8,
+      "measuredDistanceToSurface": 0.65,
+      "isManualShoot": false,
+      "ledPower": 18.0
+    }
+  ],
+  "videos": [
+    {
+      "fileDir": "videos/seq000",
+      "filename1": "VID_0001_A.MP4",
+      "filename2": "VID_0001_B.MP4",
+      "videoTakenAt": "2026-06-17T09:00:00+09:00",
+      "videoLength": 3000,
+      "uniqueKey": "video-001",
+      "chamberPosition": 1,
+      "bladePosition": 0,
+      "timeZone": "Asia/Seoul",
+      "sequenceId": 0,
+      "n": 0.0,
+      "e": 0.0,
+      "alt": 0.0,
+      "r": 3.25,
+      "bodyRoll": 0.0,
+      "bodyPitch": 0.0,
+      "bodyYaw": 0.0,
+      "gpsAltitude": 0.0,
+      "gpsLatitude": 0.0,
+      "gpsLongitude": 0.0,
+      "ledPower": 36.0
+    }
+  ],
+  "lidarData": [
+    {
+      "lidarTakenAt": "2026-06-17T09:00:00+09:00",
+      "lidarLength": 3000,
+      "uniqueKey": "lidar-001",
+      "chamberPosition": 1,
+      "bladePosition": 0,
+      "sequenceId": 0,
+      "r": 3.25,
+      "resolutionVertical": 4,
+      "resolutionHorizontal": 8,
+      "timeStep": 0.1,
+      "distanceToSurfaces": []
+    }
+  ]
+}
