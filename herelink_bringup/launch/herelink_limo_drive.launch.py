@@ -64,6 +64,36 @@ def generate_launch_description():
             description="Maximum yaw rate in rad/s.",
         ),
         DeclareLaunchArgument(
+            "mode_channel",
+            default_value="7",
+            description="RC toggle channel used to switch between spin and ackermann modes.",
+        ),
+        DeclareLaunchArgument(
+            "mode_threshold_pwm",
+            default_value="1600",
+            description="PWM threshold above which the mode switch is treated as ackermann.",
+        ),
+        DeclareLaunchArgument(
+            "ackermann_min_linear_x",
+            default_value="0.05",
+            description="Minimum linear speed needed before steering is allowed in ackermann mode.",
+        ),
+        DeclareLaunchArgument(
+            "mode_toggle_latch",
+            default_value="true",
+            description="Treat the mode switch as a momentary button and latch the mode on each press.",
+        ),
+        DeclareLaunchArgument(
+            "mode_toggle_debounce_sec",
+            default_value="0.3",
+            description="Debounce time for the mode toggle button.",
+        ),
+        DeclareLaunchArgument(
+            "initial_ackermann_mode",
+            default_value="false",
+            description="Initial latched drive mode before the first toggle button press.",
+        ),
+        DeclareLaunchArgument(
             "debug_output",
             default_value="false",
             description="Enable debug output from the HereLink node.",
@@ -125,13 +155,31 @@ def generate_launch_description():
                 "linear_channel": 2,
                 "lateral_channel": 4,
                 "angular_channel": 1,
+                "mode_channel": ParameterValue(
+                    LaunchConfiguration("mode_channel"), value_type=int
+                ),
                 "center_pwm": 1524,
                 "min_pwm": 1102,
                 "max_pwm": 1927,
                 "deadband_pwm": 30,
+                "mode_threshold_pwm": ParameterValue(
+                    LaunchConfiguration("mode_threshold_pwm"), value_type=int
+                ),
                 "linear_direction": -1.0,
                 "lateral_direction": -1.0,
                 "angular_direction": -1.0,
+                "ackermann_min_linear_x": ParameterValue(
+                    LaunchConfiguration("ackermann_min_linear_x"), value_type=float
+                ),
+                "mode_toggle_latch": ParameterValue(
+                    LaunchConfiguration("mode_toggle_latch"), value_type=bool
+                ),
+                "mode_toggle_debounce_sec": ParameterValue(
+                    LaunchConfiguration("mode_toggle_debounce_sec"), value_type=float
+                ),
+                "initial_ackermann_mode": ParameterValue(
+                    LaunchConfiguration("initial_ackermann_mode"), value_type=bool
+                ),
                 "max_linear": ParameterValue(
                     LaunchConfiguration("max_linear"), value_type=float
                 ),

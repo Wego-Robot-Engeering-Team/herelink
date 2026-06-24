@@ -85,16 +85,25 @@ public:
     linear_channel_ = declare_parameter<int>("linear_channel", 2);
     lateral_channel_ = declare_parameter<int>("lateral_channel", 4);
     angular_channel_ = declare_parameter<int>("angular_channel", 1);
+    mode_channel_ = declare_parameter<int>("mode_channel", 7);
     center_pwm_ = declare_parameter<int>("center_pwm", 1524);
     min_pwm_ = declare_parameter<int>("min_pwm", 1102);
     max_pwm_ = declare_parameter<int>("max_pwm", 1927);
     deadband_pwm_ = declare_parameter<int>("deadband_pwm", 30);
+    mode_threshold_pwm_ = declare_parameter<int>("mode_threshold_pwm", 1600);
     max_linear_ = declare_parameter<double>("max_linear", 1.0);
     max_lateral_ = declare_parameter<double>("max_lateral", 1.0);
     max_angular_ = declare_parameter<double>("max_angular", 1.0);
     linear_direction_ = declare_parameter<double>("linear_direction", -1.0);
     lateral_direction_ = declare_parameter<double>("lateral_direction", -1.0);
     angular_direction_ = declare_parameter<double>("angular_direction", -1.0);
+    ackermann_min_linear_x_ =
+      declare_parameter<double>("ackermann_min_linear_x", 0.05);
+    mode_toggle_latch_ = declare_parameter<bool>("mode_toggle_latch", true);
+    mode_toggle_debounce_sec_ =
+      declare_parameter<double>("mode_toggle_debounce_sec", 0.3);
+    initial_ackermann_mode_ =
+      declare_parameter<bool>("initial_ackermann_mode", false);
     rc_timeout_sec_ = declare_parameter<double>("rc_timeout_sec", 0.5);
     publish_zero_on_timeout_ = declare_parameter<bool>("publish_zero_on_timeout", true);
     request_rate_hz_ = declare_parameter<int>("request_rate_hz", 20);
@@ -102,6 +111,7 @@ public:
     debug_log_interval_sec_ = declare_parameter<double>("debug_log_interval_sec", 1.0);
     debug_cmd_change_threshold_ = declare_parameter<double>("debug_cmd_change_threshold", 0.02);
     debug_pwm_change_threshold_ = declare_parameter<int>("debug_pwm_change_threshold", 5);
+    latched_ackermann_mode_ = initial_ackermann_mode_;
 
     cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>(cmd_vel_topic_, 10);
     timer_ = create_wall_timer(
@@ -109,9 +119,9 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "Reading %s, mapping ch%d -> %s linear.x, ch%d -> linear.y, ch%d -> angular.z",
+      "Reading %s, mapping ch%d -> %s linear.x, ch%d -> linear.y, ch%d -> angular.z, ch%d mode toggle",
       port_.c_str(), linear_channel_, cmd_vel_topic_.c_str(), lateral_channel_,
-      angular_channel_);
+      angular_channel_, mode_channel_);
   }
 
   ~SbusCmdVelNode() override
@@ -354,10 +364,12 @@ private:
     const auto linear_pwm = channel_value(channels, linear_channel_);
     const auto lateral_pwm = channel_value(channels, lateral_channel_);
     const auto angular_pwm = channel_value(channels, angular_channel_);
+    const auto mode_pwm = channel_value(channels, mode_channel_);
     if (linear_pwm == 0 || lateral_pwm == 0 || angular_pwm == 0) {
       return;
     }
 
+    const bool ackermann_mode = current_drive_mode(mode_pwm);
     geometry_msgs::msg::Twist cmd;
     cmd.linear.x = axis_from_pwm(linear_pwm) * max_linear_ * linear_direction_;
     cmd.linear.y = axis_from_pwm(lateral_pwm) * max_lateral_ * lateral_direction_;
@@ -367,17 +379,27 @@ private:
     cmd.linear.y = (std::abs(cmd.linear.y) < 0.1) ? 0.0 : cmd.linear.y;
     cmd.angular.z = (std::abs(cmd.angular.z) < 0.1) ? 0.0 : cmd.angular.z;
 
+    if (ackermann_mode) {
+      // Ackermann mode should not use lateral motion, and should not spin in place.
+      cmd.linear.y = 0.0;
+      if (std::abs(cmd.linear.x) < ackermann_min_linear_x_) {
+        cmd.angular.z = 0.0;
+      }
+    }
+
     cmd_vel_pub_->publish(cmd);
 
     last_rc_time_ = this->now();
     zero_published_after_timeout_ = false;
+    log_drive_mode_if_changed(ackermann_mode, mode_pwm);
 
     if (debug_output_ && should_print_debug(linear_pwm, lateral_pwm, angular_pwm, cmd)) {
       RCLCPP_INFO(
         get_logger(),
-        "RC ch%d=%u ch%d=%u ch%d=%u -> %s linear.x=%.3f linear.y=%.3f angular.z=%.3f",
+        "RC mode=%s ch%d=%u ch%d=%u ch%d=%u ch%d=%u -> %s linear.x=%.3f linear.y=%.3f angular.z=%.3f",
+        ackermann_mode ? "ackermann" : "spin",
         linear_channel_, linear_pwm, lateral_channel_, lateral_pwm, angular_channel_, angular_pwm,
-        cmd_vel_topic_.c_str(), cmd.linear.x, cmd.linear.y, cmd.angular.z);
+        mode_channel_, mode_pwm, cmd_vel_topic_.c_str(), cmd.linear.x, cmd.linear.y, cmd.angular.z);
     }
 
     RCLCPP_DEBUG(
@@ -422,6 +444,53 @@ private:
     last_logged_linear_y_ = cmd.linear.y;
     last_logged_angular_z_ = cmd.angular.z;
     return true;
+  }
+
+  bool is_ackermann_mode(uint16_t mode_pwm) const
+  {
+    if (mode_channel_ <= 0 || mode_pwm == 0) {
+      return false;
+    }
+    return mode_pwm >= static_cast<uint16_t>(mode_threshold_pwm_);
+  }
+
+  bool current_drive_mode(uint16_t mode_pwm)
+  {
+    const bool switch_high = is_ackermann_mode(mode_pwm);
+    if (!mode_toggle_latch_) {
+      return switch_high;
+    }
+
+    const auto now = this->now();
+    if (!mode_input_initialized_) {
+      mode_input_initialized_ = true;
+      last_mode_switch_high_ = switch_high;
+      return latched_ackermann_mode_;
+    }
+
+    const bool rising_edge = switch_high && !last_mode_switch_high_;
+    const bool debounce_ok =
+      last_mode_toggle_time_.nanoseconds() == 0 ||
+      (now - last_mode_toggle_time_).seconds() >= mode_toggle_debounce_sec_;
+
+    if (rising_edge && debounce_ok) {
+      latched_ackermann_mode_ = !latched_ackermann_mode_;
+      last_mode_toggle_time_ = now;
+    }
+
+    last_mode_switch_high_ = switch_high;
+    return latched_ackermann_mode_;
+  }
+
+  void log_drive_mode_if_changed(bool ackermann_mode, uint16_t mode_pwm)
+  {
+    if (!last_mode_initialized_ || last_ackermann_mode_ != ackermann_mode) {
+      RCLCPP_INFO(
+        get_logger(), "Drive mode switched to %s (ch%d=%u, threshold=%d)",
+        ackermann_mode ? "ACKERMANN" : "SPIN", mode_channel_, mode_pwm, mode_threshold_pwm_);
+      last_mode_initialized_ = true;
+      last_ackermann_mode_ = ackermann_mode;
+    }
   }
 
   uint16_t channel_value(const std::array<uint16_t, 18> & channels, int channel) const
@@ -555,19 +624,25 @@ private:
   int linear_channel_ = 2;
   int lateral_channel_ = 4;
   int angular_channel_ = 1;
+  int mode_channel_ = 7;
   int center_pwm_ = 1524;
   int min_pwm_ = 1102;
   int max_pwm_ = 1927;
   int deadband_pwm_ = 30;
+  int mode_threshold_pwm_ = 1600;
   double max_linear_ = 1.0;
   double max_lateral_ = 1.0;
   double max_angular_ = 1.0;
   double linear_direction_ = -1.0;
   double lateral_direction_ = -1.0;
   double angular_direction_ = -1.0;
+  double ackermann_min_linear_x_ = 0.05;
+  double mode_toggle_debounce_sec_ = 0.3;
   double rc_timeout_sec_ = 0.5;
   double debug_log_interval_sec_ = 1.0;
   double debug_cmd_change_threshold_ = 0.02;
+  bool mode_toggle_latch_ = true;
+  bool initial_ackermann_mode_ = false;
   bool publish_zero_on_timeout_ = true;
   bool debug_output_ = false;
   int debug_pwm_change_threshold_ = 5;
@@ -579,6 +654,11 @@ private:
   uint8_t target_component_ = 0;
   std::vector<uint8_t> buffer_;
   bool zero_published_after_timeout_ = false;
+  bool mode_input_initialized_ = false;
+  bool last_mode_switch_high_ = false;
+  bool last_mode_initialized_ = false;
+  bool last_ackermann_mode_ = false;
+  bool latched_ackermann_mode_ = false;
   uint16_t last_logged_linear_pwm_ = 0;
   uint16_t last_logged_lateral_pwm_ = 0;
   uint16_t last_logged_angular_pwm_ = 0;
@@ -589,6 +669,7 @@ private:
   rclcpp::Time last_request_time_;
   rclcpp::Time last_rc_time_;
   rclcpp::Time last_debug_time_;
+  rclcpp::Time last_mode_toggle_time_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
